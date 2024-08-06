@@ -12,7 +12,7 @@ import websocket
 from dotenv import dotenv_values
 from nextcord.ext import commands
 from nextcord.webhook import SyncWebhook
-from nextcord import Intents, Message, File, Embed
+from nextcord import Intents, Message, File, Embed, Colour
 
 logging.basicConfig()
 
@@ -32,13 +32,14 @@ MEOWER_TOKEN, DSC_TOKEN, CHANNEL, WEBHOOK, MEOWER_USR, DSC_PING, DSC_USR = itemg
 CHANNEL = int(CHANNEL)
 
 bot = commands.Bot(command_prefix="$", intents=intents)
+last_msg = None
 db = SqliteDict("posts.db")
 
 
 @bot.event
 async def on_typing(_channel, user, _when):
     if user == DSC_USR:
-        h = requests.post(
+        requests.post(
             "https://api.meower.org/home/typing", headers={"Token": MEOWER_TOKEN}
         )
 
@@ -76,14 +77,22 @@ async def on_message(message: Message):
         },
         headers={"Token": MEOWER_TOKEN, "Content-Type": "application/json"},
     )
+
     if resp.status_code != 200:
         print("could not send")
         print(resp.status_code, resp.text)
+
+    db[message.id] = resp.json()["_id"]
+    db.commit()
 
 
 def get_attachment(a):
     url = f"https://uploads.meower.org/attachments/{a['id']}/{a['filename']}"
     return File(BytesIO(requests.get(url).content), filename=a["filename"])
+
+
+def hex_to_rgb(hexa):
+    return tuple(int(hexa[i : i + 2], 16) for i in (0, 2, 4))
 
 
 async def send_webhook_post(packet):
@@ -102,12 +111,17 @@ async def send_webhook_post(packet):
     if replies:
         reply_id = {v: k for k, v in db.items()}[replies[0]["_id"]]
         old_msg = h.fetch_message(reply_id)
-        embed = Embed(description=f"{replies[0]['p']} [⤴]({old_msg.jump_url})")
+
+        embed = Embed(
+            description=f"{replies[0]['p']} [⤴]({old_msg.jump_url})",
+            color=Colour.from_rgb(*hex_to_rgb(replies[0]["author"]["avatar_color"])),
+        )
         embed.set_author(
             name=f"@{old_msg.author.name}",
             url=f"https://app.meower.org/users/{old_msg.author.name}",
             icon_url=old_msg.author.display_avatar.url,
         )
+
         params["embed"] = embed
 
     message = h.send(content.replace(MEOWER_USR, DSC_USR), **params)
@@ -126,7 +140,6 @@ async def edit_webhook_post(packet, delete):
     if delete:
         await message.delete()
     else:
-        message = message.id
         wb = SyncWebhook.from_url(WEBHOOK)
         wb.edit_message(message, content=packet["val"]["p"])
 
@@ -139,6 +152,8 @@ async def listen_for_messages():
             message: dict = json.loads(sock.recv())
             cmd = message.get("cmd", "")
             if cmd == "post":
+                if message["val"]["_id"] in {v: k for k, v in db.items()}:
+                    return
                 asyncio.run_coroutine_threadsafe(send_webhook_post(message), bot.loop)
             elif cmd == "update_post":
                 asyncio.run_coroutine_threadsafe(
