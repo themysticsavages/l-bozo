@@ -1,4 +1,4 @@
-env/
-p
-.env
-posts.db
+bridge-v2/env/
+bridge-v2/p
+bridge-v2/.env
+bridge-v2/posts.db

@@ -43,7 +43,6 @@ async def on_typing(_channel, user, _when):
             "https://api.meower.org/home/typing", headers={"Token": MEOWER_TOKEN}
         )
 
-
 @bot.event
 async def on_message(message: Message):
     if message.webhook_id or message.channel.id != CHANNEL:
@@ -139,6 +138,7 @@ async def edit_webhook_post(packet, delete):
 
     if delete:
         await message.delete()
+        del db[message_id]
     else:
         wb = SyncWebhook.from_url(WEBHOOK)
         wb.edit_message(message, content=packet["val"]["p"])
